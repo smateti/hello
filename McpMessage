@@ -1,0 +1,262 @@
+package com.example.ollamacmp.mcp;
+
+import com.fasterxml.jackson.annotation.JsonInclude;
+import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.annotation.JsonSubTypes;
+import com.fasterxml.jackson.annotation.JsonTypeInfo;
+
+import java.util.List;
+import java.util.Map;
+
+/**
+ * MCP (Model Context Protocol) message types and data structures.
+ * 
+ * The Model Context Protocol defines a standard way for AI models to communicate
+ * with external tools and resources. Think of it as a universal API that allows
+ * any AI model to use tools you've built, regardless of the specific model.
+ * 
+ * Key concepts:
+ * 1. Messages: All communication happens through structured messages
+ * 2. Tools: Functions that the AI can call (like a calculator or file reader)
+ * 3. Resources: Data sources that the AI can access (like files or databases)
+ * 4. Prompts: Pre-defined templates that help structure AI interactions
+ */
+
+/**
+ * Base class for all MCP messages.
+ * Every message in the MCP protocol has a unique identifier and a type.
+ * This allows us to track conversations and route messages appropriately.
+ */
+@JsonTypeInfo(use = JsonTypeInfo.Id.NAME, property = "method")
+@JsonSubTypes({
+    @JsonSubTypes.Type(value = McpMessage.InitializeRequest.class, name = "initialize"),
+    @JsonSubTypes.Type(value = McpMessage.ListToolsRequest.class, name = "tools/list"),
+    @JsonSubTypes.Type(value = McpMessage.CallToolRequest.class, name = "tools/call"),
+    @JsonSubTypes.Type(value = McpMessage.ListResourcesRequest.class, name = "resources/list"),
+    @JsonSubTypes.Type(value = McpMessage.ReadResourceRequest.class, name = "resources/read")
+})
+@JsonInclude(JsonInclude.Include.NON_NULL)
+public abstract class McpMessage {
+    
+    @JsonProperty("jsonrpc")
+    private String jsonrpc = "2.0"; // MCP uses JSON-RPC 2.0 protocol
+    
+    private String id; // Unique identifier for tracking requests/responses
+    
+    // Constructors
+    protected McpMessage() {}
+    
+    protected McpMessage(String id) {
+        this.id = id;
+    }
+    
+    // Getters and setters
+    public String getJsonrpc() { return jsonrpc; }
+    public void setJsonrpc(String jsonrpc) { this.jsonrpc = jsonrpc; }
+    public String getId() { return id; }
+    public void setId(String id) { this.id = id; }
+    
+    /**
+     * Initialize Request - Sent when a client first connects to the MCP server.
+     * This is like a handshake that establishes what capabilities both sides have.
+     */
+    public static class InitializeRequest extends McpMessage {
+        private InitializeParams params;
+        
+        public InitializeRequest() { super(); }
+        public InitializeRequest(String id, InitializeParams params) {
+            super(id);
+            this.params = params;
+        }
+        
+        public InitializeParams getParams() { return params; }
+        public void setParams(InitializeParams params) { this.params = params; }
+    }
+    
+    /**
+     * Parameters for initialization - tells the server about the client's capabilities
+     */
+    public static class InitializeParams {
+        private String protocolVersion = "0.1.0";
+        private ClientInfo clientInfo;
+        private ServerCapabilities capabilities;
+        
+        // Getters and setters
+        public String getProtocolVersion() { return protocolVersion; }
+        public void setProtocolVersion(String protocolVersion) { this.protocolVersion = protocolVersion; }
+        public ClientInfo getClientInfo() { return clientInfo; }
+        public void setClientInfo(ClientInfo clientInfo) { this.clientInfo = clientInfo; }
+        public ServerCapabilities getCapabilities() { return capabilities; }
+        public void setCapabilities(ServerCapabilities capabilities) { this.capabilities = capabilities; }
+    }
+    
+    /**
+     * Information about the client connecting to our MCP server
+     */
+    public static class ClientInfo {
+        private String name;
+        private String version;
+        
+        public ClientInfo() {}
+        public ClientInfo(String name, String version) {
+            this.name = name;
+            this.version = version;
+        }
+        
+        public String getName() { return name; }
+        public void setName(String name) { this.name = name; }
+        public String getVersion() { return version; }
+        public void setVersion(String version) { this.version = version; }
+    }
+    
+    /**
+     * Defines what capabilities our server supports.
+     * This tells clients what they can ask us to do.
+     */
+    public static class ServerCapabilities {
+        private ToolsCapability tools;
+        private ResourcesCapability resources;
+        
+        public ToolsCapability getTools() { return tools; }
+        public void setTools(ToolsCapability tools) { this.tools = tools; }
+        public ResourcesCapability getResources() { return resources; }
+        public void setResources(ResourcesCapability resources) { this.resources = resources; }
+        
+        public static class ToolsCapability {
+            @JsonProperty("listChanged")
+            private boolean listChanged = true; // We can notify when tools change
+            
+            public boolean isListChanged() { return listChanged; }
+            public void setListChanged(boolean listChanged) { this.listChanged = listChanged; }
+        }
+        
+        public static class ResourcesCapability {
+            @JsonProperty("listChanged")
+            private boolean listChanged = true; // We can notify when resources change
+            
+            public boolean isListChanged() { return listChanged; }
+            public void setListChanged(boolean listChanged) { this.listChanged = listChanged; }
+        }
+    }
+    
+    /**
+     * Request to list all available tools.
+     * This is how clients discover what functions they can call.
+     */
+    public static class ListToolsRequest extends McpMessage {
+        public ListToolsRequest() { super(); }
+        public ListToolsRequest(String id) { super(id); }
+    }
+    
+    /**
+     * Request to call a specific tool with parameters.
+     * This is where the actual work happens - the AI is asking us to run a function.
+     */
+    public static class CallToolRequest extends McpMessage {
+        private CallToolParams params;
+        
+        public CallToolRequest() { super(); }
+        public CallToolRequest(String id, CallToolParams params) {
+            super(id);
+            this.params = params;
+        }
+        
+        public CallToolParams getParams() { return params; }
+        public void setParams(CallToolParams params) { this.params = params; }
+    }
+    
+    /**
+     * Parameters for calling a tool
+     */
+    public static class CallToolParams {
+        private String name; // Name of the tool to call
+        private Map<String, Object> arguments; // Arguments to pass to the tool
+        
+        public String getName() { return name; }
+        public void setName(String name) { this.name = name; }
+        public Map<String, Object> getArguments() { return arguments; }
+        public void setArguments(Map<String, Object> arguments) { this.arguments = arguments; }
+    }
+    
+    /**
+     * Request to list all available resources.
+     * Resources are data sources that the AI can read from.
+     */
+    public static class ListResourcesRequest extends McpMessage {
+        public ListResourcesRequest() { super(); }
+        public ListResourcesRequest(String id) { super(id); }
+    }
+    
+    /**
+     * Request to read a specific resource.
+     * This is how the AI actually gets data from a resource.
+     */
+    public static class ReadResourceRequest extends McpMessage {
+        private ReadResourceParams params;
+        
+        public ReadResourceRequest() { super(); }
+        public ReadResourceRequest(String id, ReadResourceParams params) {
+            super(id);
+            this.params = params;
+        }
+        
+        public ReadResourceParams getParams() { return params; }
+        public void setParams(ReadResourceParams params) { this.params = params; }
+    }
+    
+    /**
+     * Parameters for reading a resource
+     */
+    public static class ReadResourceParams {
+        private String uri; // URI of the resource to read
+        
+        public String getUri() { return uri; }
+        public void setUri(String uri) { this.uri = uri; }
+    }
+    
+    /**
+     * Generic response wrapper for MCP messages
+     */
+    public static class Response extends McpMessage {
+        private Object result;
+        private ErrorInfo error;
+        
+        public Response() { super(); }
+        public Response(String id, Object result) {
+            super(id);
+            this.result = result;
+        }
+        
+        public Response(String id, ErrorInfo error) {
+            super(id);
+            this.error = error;
+        }
+        
+        public Object getResult() { return result; }
+        public void setResult(Object result) { this.result = result; }
+        public ErrorInfo getError() { return error; }
+        public void setError(ErrorInfo error) { this.error = error; }
+    }
+    
+    /**
+     * Error information for failed requests
+     */
+    public static class ErrorInfo {
+        private int code;
+        private String message;
+        private Object data;
+        
+        public ErrorInfo() {}
+        public ErrorInfo(int code, String message) {
+            this.code = code;
+            this.message = message;
+        }
+        
+        public int getCode() { return code; }
+        public void setCode(int code) { this.code = code; }
+        public String getMessage() { return message; }
+        public void setMessage(String message) { this.message = message; }
+        public Object getData() { return data; }
+        public void setData(Object data) { this.data = data; }
+    }
+}
