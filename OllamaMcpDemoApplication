@@ -1,0 +1,69 @@
+package com.example.ollamacmp;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.context.annotation.Bean;
+import org.springframework.web.client.RestTemplate;
+import org.springframework.scheduling.annotation.EnableAsync;
+
+/**
+ * Main application class for the Ollama MCP Demo.
+ * 
+ * This Spring Boot application demonstrates the integration between:
+ * 1. Ollama AI models running locally
+ * 2. Model Context Protocol (MCP) server implementation
+ * 3. RESTful APIs for external communication
+ * 
+ * The application architecture follows these key principles:
+ * - Separation of concerns: MCP server logic is separate from REST API logic
+ * - Reactive programming: Using WebFlux for non-blocking I/O operations
+ * - Tool-based interaction: AI models can call specific tools via MCP protocol
+ * - Resource management: Files and data can be accessed through MCP resources
+ */
+@SpringBootApplication
+@EnableAsync // Enable asynchronous processing for better performance
+public class OllamaMcpDemoApplication {
+
+    /**
+     * Main entry point of the application.
+     * 
+     * This method starts the Spring Boot application context, which will:
+     * 1. Initialize the Ollama AI client connection
+     * 2. Start the MCP server on the configured port
+     * 3. Expose REST endpoints for external API access
+     * 4. Set up WebSocket connections for real-time communication
+     */
+    public static void main(String[] args) {
+        SpringApplication.run(OllamaMcpDemoApplication.class, args);
+        
+        System.out.println("\n" +
+            "╔══════════════════════════════════════════════════════════════╗\n" +
+            "║                 Ollama MCP Demo Server                       ║\n" +
+            "║                                                              ║\n" +
+            "║  🚀 Server started successfully!                             ║\n" +
+            "║                                                              ║\n" +
+            "║  📡 REST API:     http://localhost:8080/api                  ║\n" +
+            "║  🔗 MCP Server:   ws://localhost:9090                        ║\n" +
+            "║  🤖 Ollama:       http://localhost:11434                     ║\n" +
+            "║                                                              ║\n" +
+            "║  Available endpoints:                                        ║\n" +
+            "║    GET  /chat/models     - List available models            ║\n" +
+            "║    POST /chat/message    - Send message to AI               ║\n" +
+            "║    GET  /mcp/tools       - List available MCP tools         ║\n" +
+            "║    POST /mcp/execute     - Execute MCP tool                  ║\n" +
+            "║                                                              ║\n" +
+            "╚══════════════════════════════════════════════════════════════╝\n");
+    }
+
+    /**
+     * RestTemplate bean for making HTTP requests to external services.
+     * 
+     * This bean is used primarily for making calls to external APIs
+     * that our MCP tools might need to access, such as weather services
+     * or other data providers.
+     */
+    @Bean
+    public RestTemplate restTemplate() {
+        return new RestTemplate();
+    }
+}
