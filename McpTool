@@ -1,0 +1,371 @@
+package com.example.ollamacmp.mcp.model;
+
+import com.fasterxml.jackson.annotation.JsonInclude;
+import com.fasterxml.jackson.annotation.JsonProperty;
+
+import java.util.List;
+import java.util.Map;
+
+/**
+ * Data models for MCP tools and resources.
+ * 
+ * In the Model Context Protocol, tools are like superpowers that you give to AI models.
+ * Instead of the AI just generating text, it can now actually DO things:
+ * - Perform calculations
+ * - Read and write files
+ * - Look up information from databases
+ * - Make API calls to external services
+ * 
+ * Think of tools as a way to extend the AI's capabilities beyond just conversation.
+ * Each tool is like adding a new app to the AI's smartphone.
+ */
+
+/**
+ * Represents a tool that the AI can call.
+ * 
+ * A tool is essentially a function with a name, description, and parameter schema.
+ * The AI reads this definition and decides when and how to call the tool based on
+ * the user's request and the context of the conversation.
+ */
+@JsonInclude(JsonInclude.Include.NON_NULL)
+public class McpTool {
+    private String name;           // Unique identifier for this tool
+    private String description;    // What this tool does - helps AI decide when to use it
+    private InputSchema inputSchema; // Defines what parameters this tool accepts
+    
+    // Default constructor needed for JSON deserialization
+    public McpTool() {}
+    
+    /**
+     * Constructor for creating a new tool definition.
+     * 
+     * @param name The tool's unique identifier (like "calculator" or "file-reader")
+     * @param description A clear explanation of what this tool does
+     * @param inputSchema The structure of parameters this tool expects
+     */
+    public McpTool(String name, String description, InputSchema inputSchema) {
+        this.name = name;
+        this.description = description;
+        this.inputSchema = inputSchema;
+    }
+    
+    // Getters and setters for JSON serialization
+    public String getName() { return name; }
+    public void setName(String name) { this.name = name; }
+    
+    public String getDescription() { return description; }
+    public void setDescription(String description) { this.description = description; }
+    
+    public InputSchema getInputSchema() { return inputSchema; }
+    public void setInputSchema(InputSchema inputSchema) { this.inputSchema = inputSchema; }
+    
+    /**
+     * Defines the structure of parameters that a tool accepts.
+     * 
+     * This uses JSON Schema format, which is a standard way to describe
+     * the structure of JSON data. The AI uses this to understand what
+     * parameters it needs to provide when calling the tool.
+     */
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public static class InputSchema {
+        private String type = "object";  // Tools always expect an object with properties
+        private Map<String, PropertySchema> properties; // Definition of each parameter
+        private List<String> required;   // Which parameters are mandatory
+        
+        public InputSchema() {}
+        
+        public InputSchema(Map<String, PropertySchema> properties, List<String> required) {
+            this.properties = properties;
+            this.required = required;
+        }
+        
+        public String getType() { return type; }
+        public void setType(String type) { this.type = type; }
+        
+        public Map<String, PropertySchema> getProperties() { return properties; }
+        public void setProperties(Map<String, PropertySchema> properties) { this.properties = properties; }
+        
+        public List<String> getRequired() { return required; }
+        public void setRequired(List<String> required) { this.required = required; }
+    }
+    
+    /**
+     * Describes a single parameter that a tool accepts.
+     * 
+     * Each parameter has a type (string, number, boolean, etc.) and a description
+     * that helps the AI understand what to provide. For example, a calculator tool
+     * might have parameters like "operation" (string) and "numbers" (array of numbers).
+     */
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public static class PropertySchema {
+        private String type;        // Data type: string, number, integer, boolean, array, object
+        private String description; // What this parameter is for
+        private List<String> enums; // If this parameter has a limited set of valid values
+        private PropertySchema items; // For arrays, describes the type of items in the array
+        
+        public PropertySchema() {}
+        
+        public PropertySchema(String type, String description) {
+            this.type = type;
+            this.description = description;
+        }
+        
+        public PropertySchema(String type, String description, List<String> enums) {
+            this.type = type;
+            this.description = description;
+            this.enums = enums;
+        }
+        
+        public String getType() { return type; }
+        public void setType(String type) { this.type = type; }
+        
+        public String getDescription() { return description; }
+        public void setDescription(String description) { this.description = description; }
+        
+        @JsonProperty("enum")
+        public List<String> getEnums() { return enums; }
+        public void setEnums(List<String> enums) { this.enums = enums; }
+        
+        public PropertySchema getItems() { return items; }
+        public void setItems(PropertySchema items) { this.items = items; }
+    }
+}
+
+/**
+ * Represents the result of calling a tool.
+ * 
+ * When the AI calls a tool, it gets back a result that contains either:
+ * - Content: The actual result data (like a calculation result or file contents)
+ * - Error: Information about what went wrong if the tool call failed
+ */
+@JsonInclude(JsonInclude.Include.NON_NULL)
+public class McpToolResult {
+    private List<ContentItem> content; // The actual result data
+    private boolean isError = false;   // Whether this represents an error
+    
+    public McpToolResult() {}
+    
+    /**
+     * Create a successful tool result with content.
+     */
+    public McpToolResult(List<ContentItem> content) {
+        this.content = content;
+        this.isError = false;
+    }
+    
+    /**
+     * Create an error result.
+     */
+    public static McpToolResult error(String message) {
+        McpToolResult result = new McpToolResult();
+        result.isError = true;
+        result.content = List.of(new ContentItem("text", message));
+        return result;
+    }
+    
+    public List<ContentItem> getContent() { return content; }
+    public void setContent(List<ContentItem> content) { this.content = content; }
+    
+    public boolean isError() { return isError; }
+    public void setError(boolean error) { isError = error; }
+    
+    /**
+     * Represents a piece of content in a tool result.
+     * 
+     * Content can be different types:
+     * - text: Plain text response
+     * - image: Base64 encoded image data
+     * - resource: A reference to a resource that can be read separately
+     */
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public static class ContentItem {
+        private String type;  // "text", "image", or "resource"
+        private String text;  // For text content
+        private String data;  // For image content (base64 encoded)
+        private String uri;   // For resource references
+        private String mimeType; // MIME type for non-text content
+        
+        public ContentItem() {}
+        
+        public ContentItem(String type, String text) {
+            this.type = type;
+            this.text = text;
+        }
+        
+        public String getType() { return type; }
+        public void setType(String type) { this.type = type; }
+        
+        public String getText() { return text; }
+        public void setText(String text) { this.text = text; }
+        
+        public String getData() { return data; }
+        public void setData(String data) { this.data = data; }
+        
+        public String getUri() { return uri; }
+        public void setUri(String uri) { this.uri = uri; }
+        
+        public String getMimeType() { return mimeType; }
+        public void setMimeType(String mimeType) { this.mimeType = mimeType; }
+    }
+}
+
+/**
+ * Represents a resource that the AI can read from.
+ * 
+ * Resources are different from tools - while tools are functions that DO something,
+ * resources are data sources that the AI can READ from. Think of resources as
+ * files, databases, or API endpoints that contain information the AI might need.
+ */
+@JsonInclude(JsonInclude.Include.NON_NULL)
+public class McpResource {
+    private String uri;         // Unique identifier for this resource
+    private String name;        // Human-readable name
+    private String description; // What this resource contains
+    private String mimeType;    // Content type (text/plain, application/json, etc.)
+    
+    public McpResource() {}
+    
+    /**
+     * Constructor for creating a new resource definition.
+     * 
+     * @param uri Unique identifier (like "file://data/customers.json")
+     * @param name Human-readable name (like "Customer Database")
+     * @param description What this resource contains
+     * @param mimeType Content type of the resource
+     */
+    public McpResource(String uri, String name, String description, String mimeType) {
+        this.uri = uri;
+        this.name = name;
+        this.description = description;
+        this.mimeType = mimeType;
+    }
+    
+    public String getUri() { return uri; }
+    public void setUri(String uri) { this.uri = uri; }
+    
+    public String getName() { return name; }
+    public void setName(String name) { this.name = name; }
+    
+    public String getDescription() { return description; }
+    public void setDescription(String description) { this.description = description; }
+    
+    public String getMimeType() { return mimeType; }
+    public void setMimeType(String mimeType) { this.mimeType = mimeType; }
+}
+
+/**
+ * Response wrapper for listing tools.
+ * When the AI asks "what tools are available?", we respond with this structure.
+ */
+@JsonInclude(JsonInclude.Include.NON_NULL)
+public class ListToolsResponse {
+    private List<McpTool> tools;
+    
+    public ListToolsResponse() {}
+    
+    public ListToolsResponse(List<McpTool> tools) {
+        this.tools = tools;
+    }
+    
+    public List<McpTool> getTools() { return tools; }
+    public void setTools(List<McpTool> tools) { this.tools = tools; }
+}
+
+/**
+ * Response wrapper for listing resources.
+ * When the AI asks "what resources are available?", we respond with this structure.
+ */
+@JsonInclude(JsonInclude.Include.NON_NULL)
+public class ListResourcesResponse {
+    private List<McpResource> resources;
+    
+    public ListResourcesResponse() {}
+    
+    public ListResourcesResponse(List<McpResource> resources) {
+        this.resources = resources;
+    }
+    
+    public List<McpResource> getResources() { return resources; }
+    public void setResources(List<McpResource> resources) { this.resources = resources; }
+}
+
+/**
+ * Response when reading a resource.
+ * This contains the actual content of the resource the AI requested.
+ */
+@JsonInclude(JsonInclude.Include.NON_NULL)
+public class ReadResourceResponse {
+    private List<McpToolResult.ContentItem> contents;
+    
+    public ReadResourceResponse() {}
+    
+    public ReadResourceResponse(List<McpToolResult.ContentItem> contents) {
+        this.contents = contents;
+    }
+    
+    public List<McpToolResult.ContentItem> getContents() { return contents; }
+    public void setContents(List<McpToolResult.ContentItem> contents) { this.contents = contents; }
+}
+
+/**
+ * Server information returned during initialization.
+ * This tells the client what our server can do.
+ */
+@JsonInclude(JsonInclude.Include.NON_NULL)
+public class ServerInfo {
+    private String name;
+    private String version;
+    private String protocolVersion = "0.1.0";
+    private ServerCapabilities capabilities;
+    
+    public ServerInfo() {}
+    
+    public ServerInfo(String name, String version) {
+        this.name = name;
+        this.version = version;
+        this.capabilities = new ServerCapabilities();
+    }
+    
+    public String getName() { return name; }
+    public void setName(String name) { this.name = name; }
+    
+    public String getVersion() { return version; }
+    public void setVersion(String version) { this.version = version; }
+    
+    public String getProtocolVersion() { return protocolVersion; }
+    public void setProtocolVersion(String protocolVersion) { this.protocolVersion = protocolVersion; }
+    
+    public ServerCapabilities getCapabilities() { return capabilities; }
+    public void setCapabilities(ServerCapabilities capabilities) { this.capabilities = capabilities; }
+    
+    /**
+     * Defines what our server can do.
+     */
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public static class ServerCapabilities {
+        private ToolsCapability tools = new ToolsCapability();
+        private ResourcesCapability resources = new ResourcesCapability();
+        
+        public ToolsCapability getTools() { return tools; }
+        public void setTools(ToolsCapability tools) { this.tools = tools; }
+        
+        public ResourcesCapability getResources() { return resources; }
+        public void setResources(ResourcesCapability resources) { this.resources = resources; }
+        
+        public static class ToolsCapability {
+            @JsonProperty("listChanged")
+            private boolean listChanged = true;
+            
+            public boolean isListChanged() { return listChanged; }
+            public void setListChanged(boolean listChanged) { this.listChanged = listChanged; }
+        }
+        
+        public static class ResourcesCapability {
+            @JsonProperty("listChanged") 
+            private boolean listChanged = true;
+            
+            public boolean isListChanged() { return listChanged; }
+            public void setListChanged(boolean listChanged) { this.listChanged = listChanged; }
+        }
+    }
+}
