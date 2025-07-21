@@ -1,0 +1,395 @@
+package com.example.ollamacmp.mcp.tools;
+
+import com.example.ollamacmp.mcp.model.*;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Component;
+import org.springframework.web.client.RestTemplate;
+
+import java.io.File;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.*;
+
+/**
+ * Implementation of MCP tools that AI models can call.
+ * 
+ * This class contains the actual business logic for each tool. When an AI model
+ * decides it needs to use a tool (like performing a calculation or reading a file),
+ * the MCP server routes the request to one of these methods.
+ * 
+ * Each tool is designed to be:
+ * 1. Stateless - doesn't rely on previous calls
+ * 2. Safe - validates inputs and handles errors gracefully
+ * 3. Informative - provides clear results and error messages
+ * 4. Extensible - easy to add new tools or modify existing ones
+ */
+@Component
+public class McpToolImplementations {
+    
+    private static final Logger logger = LoggerFactory.getLogger(McpToolImplementations.class);
+    
+    @Autowired
+    private RestTemplate restTemplate;
+    
+    @Autowired
+    private ObjectMapper objectMapper;
+    
+    /**
+     * Calculator tool - performs mathematical operations.
+     * 
+     * This tool demonstrates how to:
+     * - Handle different types of operations
+     * - Validate input parameters
+     * - Return structured results
+     * - Handle error cases gracefully
+     * 
+     * The AI can call this tool when users ask questions like:
+     * "What's 15% of 1,250?" or "Calculate the area of a circle with radius 5"
+     */
+    public McpToolResult executeCalculator(Map<String, Object> arguments) {
+        logger.debug("Calculator tool called with arguments: {}", arguments);
+        
+        try {
+            String operation = (String) arguments.get("operation");
+            List<Number> numbers = extractNumbers(arguments.get("numbers"));
+            
+            if (operation == null || numbers == null || numbers.isEmpty()) {
+                return McpToolResult.error("Missing required parameters: operation and numbers");
+            }
+            
+            double result = performCalculation(operation, numbers);
+            String explanation = generateCalculationExplanation(operation, numbers, result);
+            
+            return new McpToolResult(List.of(
+                new McpToolResult.ContentItem("text", String.format("Result: %.6f", result)),
+                new McpToolResult.ContentItem("text", explanation)
+            ));
+            
+        } catch (Exception e) {
+            logger.error("Error in calculator tool: {}", e.getMessage());
+            return McpToolResult.error("Calculation failed: " + e.getMessage());
+        }
+    }
+    
+    /**
+     * Performs the actual mathematical calculation based on the operation type.
+     */
+    private double performCalculation(String operation, List<Number> numbers) {
+        switch (operation.toLowerCase()) {
+            case "add":
+            case "addition":
+                return numbers.stream().mapToDouble(Number::doubleValue).sum();
+                
+            case "subtract":
+            case "subtraction":
+                if (numbers.size() < 2) throw new IllegalArgumentException("Subtraction requires at least 2 numbers");
+                double result = numbers.get(0).doubleValue();
+                for (int i = 1; i < numbers.size(); i++) {
+                    result -= numbers.get(i).doubleValue();
+                }
+                return result;
+                
+            case "multiply":
+            case "multiplication":
+                return numbers.stream().mapToDouble(Number::doubleValue).reduce(1.0, (a, b) -> a * b);
+                
+            case "divide":
+            case "division":
+                if (numbers.size() != 2) throw new IllegalArgumentException("Division requires exactly 2 numbers");
+                double divisor = numbers.get(1).doubleValue();
+                if (divisor == 0) throw new ArithmeticException("Division by zero");
+                return numbers.get(0).doubleValue() / divisor;
+                
+            case "power":
+            case "exponent":
+                if (numbers.size() != 2) throw new IllegalArgumentException("Power operation requires exactly 2 numbers");
+                return Math.pow(numbers.get(0).doubleValue(), numbers.get(1).doubleValue());
+                
+            case "sqrt":
+            case "square_root":
+                if (numbers.size() != 1) throw new IllegalArgumentException("Square root requires exactly 1 number");
+                double num = numbers.get(0).doubleValue();
+                if (num < 0) throw new IllegalArgumentException("Cannot calculate square root of negative number");
+                return Math.sqrt(num);
+                
+            case "percentage":
+                if (numbers.size() != 2) throw new IllegalArgumentException("Percentage calculation requires exactly 2 numbers (value, percentage)");
+                return (numbers.get(0).doubleValue() * numbers.get(1).doubleValue()) / 100.0;
+                
+            default:
+                throw new IllegalArgumentException("Unknown operation: " + operation + 
+                    ". Supported operations: add, subtract, multiply, divide, power, sqrt, percentage");
+        }
+    }
+    
+    /**
+     * Generates a human-readable explanation of the calculation.
+     */
+    private String generateCalculationExplanation(String operation, List<Number> numbers, double result) {
+        switch (operation.toLowerCase()) {
+            case "add":
+            case "addition":
+                return String.format("Added %d numbers: %s = %.6f", 
+                    numbers.size(), numbers.toString(), result);
+            case "percentage":
+                return String.format("%.2f%% of %.2f = %.6f", 
+                    numbers.get(1).doubleValue(), numbers.get(0).doubleValue(), result);
+            default:
+                return String.format("Performed %s operation on %s", operation, numbers.toString());
+        }
+    }
+    
+    /**
+     * File operations tool - reads and writes files.
+     * 
+     * This tool allows the AI to interact with the file system. It can:
+     * - Read text files and return their contents
+     * - Write data to files
+     * - List files in directories
+     * - Check if files exist
+     * 
+     * Security note: In a production system, you'd want to restrict which
+     * directories the AI can access and implement proper file permissions.
+     */
+    public McpToolResult executeFileOperations(Map<String, Object> arguments) {
+        logger.debug("File operations tool called with arguments: {}", arguments);
+        
+        try {
+            String action = (String) arguments.get("action");
+            String filePath = (String) arguments.get("file_path");
+            
+            if (action == null) {
+                return McpToolResult.error("Missing required parameter: action");
+            }
+            
+            switch (action.toLowerCase()) {
+                case "read":
+                    return readFile(filePath);
+                case "write":
+                    String content = (String) arguments.get("content");
+                    return writeFile(filePath, content);
+                case "list":
+                    String directory = filePath != null ? filePath : "./data";
+                    return listFiles(directory);
+                case "exists":
+                    return checkFileExists(filePath);
+                default:
+                    return McpToolResult.error("Unknown file action: " + action + 
+                        ". Supported actions: read, write, list, exists");
+            }
+            
+        } catch (Exception e) {
+            logger.error("Error in file operations tool: {}", e.getMessage());
+            return McpToolResult.error("File operation failed: " + e.getMessage());
+        }
+    }
+    
+    /**
+     * Reads the contents of a file.
+     */
+    private McpToolResult readFile(String filePath) throws IOException {
+        if (filePath == null) {
+            return McpToolResult.error("Missing required parameter: file_path");
+        }
+        
+        Path path = Paths.get(filePath);
+        if (!Files.exists(path)) {
+            return McpToolResult.error("File does not exist: " + filePath);
+        }
+        
+        String content = Files.readString(path);
+        return new McpToolResult(List.of(
+            new McpToolResult.ContentItem("text", String.format("File: %s", filePath)),
+            new McpToolResult.ContentItem("text", content)
+        ));
+    }
+    
+    /**
+     * Writes content to a file.
+     */
+    private McpToolResult writeFile(String filePath, String content) throws IOException {
+        if (filePath == null || content == null) {
+            return McpToolResult.error("Missing required parameters: file_path and content");
+        }
+        
+        Path path = Paths.get(filePath);
+        
+        // Create parent directories if they don't exist
+        if (path.getParent() != null) {
+            Files.createDirectories(path.getParent());
+        }
+        
+        Files.writeString(path, content);
+        
+        return new McpToolResult(List.of(
+            new McpToolResult.ContentItem("text", String.format("Successfully wrote %d characters to %s", 
+                content.length(), filePath))
+        ));
+    }
+    
+    /**
+     * Lists files in a directory.
+     */
+    private McpToolResult listFiles(String directory) throws IOException {
+        Path path = Paths.get(directory);
+        if (!Files.exists(path)) {
+            return McpToolResult.error("Directory does not exist: " + directory);
+        }
+        
+        if (!Files.isDirectory(path)) {
+            return McpToolResult.error("Path is not a directory: " + directory);
+        }
+        
+        List<String> fileList = new ArrayList<>();
+        Files.list(path).forEach(p -> {
+            String type = Files.isDirectory(p) ? "[DIR]" : "[FILE]";
+            fileList.add(type + " " + p.getFileName().toString());
+        });
+        
+        String result = String.format("Contents of %s:\n%s", directory, String.join("\n", fileList));
+        
+        return new McpToolResult(List.of(
+            new McpToolResult.ContentItem("text", result)
+        ));
+    }
+    
+    /**
+     * Checks if a file exists.
+     */
+    private McpToolResult checkFileExists(String filePath) {
+        if (filePath == null) {
+            return McpToolResult.error("Missing required parameter: file_path");
+        }
+        
+        boolean exists = Files.exists(Paths.get(filePath));
+        String result = String.format("File %s %s", filePath, exists ? "exists" : "does not exist");
+        
+        return new McpToolResult(List.of(
+            new McpToolResult.ContentItem("text", result)
+        ));
+    }
+    
+    /**
+     * Weather tool - gets weather information.
+     * 
+     * This tool demonstrates how to integrate with external APIs.
+     * In this example, we're using a mock weather service, but in a real
+     * implementation, you'd integrate with services like OpenWeatherMap.
+     * 
+     * The AI can call this when users ask: "What's the weather like in New York?"
+     */
+    public McpToolResult executeWeather(Map<String, Object> arguments) {
+        logger.debug("Weather tool called with arguments: {}", arguments);
+        
+        try {
+            String location = (String) arguments.get("location");
+            if (location == null) {
+                return McpToolResult.error("Missing required parameter: location");
+            }
+            
+            // In a real implementation, you'd call an actual weather API
+            // For this demo, we'll return mock weather data
+            WeatherData weather = getMockWeatherData(location);
+            
+            String weatherReport = String.format(
+                "Weather for %s:\n" +
+                "Temperature: %.1f°C (%.1f°F)\n" +
+                "Condition: %s\n" +
+                "Humidity: %d%%\n" +
+                "Wind Speed: %.1f km/h\n" +
+                "Last Updated: %s",
+                weather.location,
+                weather.temperatureCelsius,
+                celsiusToFahrenheit(weather.temperatureCelsius),
+                weather.condition,
+                weather.humidity,
+                weather.windSpeed,
+                new Date().toString()
+            );
+            
+            return new McpToolResult(List.of(
+                new McpToolResult.ContentItem("text", weatherReport)
+            ));
+            
+        } catch (Exception e) {
+            logger.error("Error in weather tool: {}", e.getMessage());
+            return McpToolResult.error("Weather lookup failed: " + e.getMessage());
+        }
+    }
+    
+    /**
+     * Mock weather data for demonstration.
+     * In a real implementation, this would call an actual weather API.
+     */
+    private WeatherData getMockWeatherData(String location) {
+        // Simple mock data based on location
+        Random random = new Random(location.hashCode()); // Consistent randomness per location
+        
+        WeatherData weather = new WeatherData();
+        weather.location = location;
+        weather.temperatureCelsius = 10 + random.nextDouble() * 25; // 10-35°C
+        weather.humidity = 30 + random.nextInt(50); // 30-80%
+        weather.windSpeed = random.nextDouble() * 20; // 0-20 km/h
+        
+        String[] conditions = {"Sunny", "Partly Cloudy", "Cloudy", "Light Rain", "Clear"};
+        weather.condition = conditions[random.nextInt(conditions.length)];
+        
+        return weather;
+    }
+    
+    private double celsiusToFahrenheit(double celsius) {
+        return (celsius * 9.0/5.0) + 32;
+    }
+    
+    /**
+     * Simple weather data structure.
+     */
+    private static class WeatherData {
+        String location;
+        double temperatureCelsius;
+        String condition;
+        int humidity;
+        double windSpeed;
+    }
+    
+    /**
+     * Utility method to extract numbers from various input formats.
+     * The AI might send numbers as integers, doubles, or strings.
+     */
+    @SuppressWarnings("unchecked")
+    private List<Number> extractNumbers(Object numbersObj) {
+        if (numbersObj == null) return null;
+        
+        List<Number> numbers = new ArrayList<>();
+        
+        if (numbersObj instanceof List) {
+            List<?> list = (List<?>) numbersObj;
+            for (Object item : list) {
+                if (item instanceof Number) {
+                    numbers.add((Number) item);
+                } else if (item instanceof String) {
+                    try {
+                        numbers.add(Double.parseDouble((String) item));
+                    } catch (NumberFormatException e) {
+                        logger.warn("Could not parse number: {}", item);
+                    }
+                }
+            }
+        } else if (numbersObj instanceof Number) {
+            numbers.add((Number) numbersObj);
+        } else if (numbersObj instanceof String) {
+            try {
+                numbers.add(Double.parseDouble((String) numbersObj));
+            } catch (NumberFormatException e) {
+                logger.warn("Could not parse number: {}", numbersObj);
+            }
+        }
+        
+        return numbers;
+    }
+}
