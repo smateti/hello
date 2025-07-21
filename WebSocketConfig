@@ -1,0 +1,73 @@
+package com.example.ollamacmp.config;
+
+import com.example.ollamacmp.mcp.server.McpServer;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.web.socket.config.annotation.EnableWebSocket;
+import org.springframework.web.socket.config.annotation.WebSocketConfigurer;
+import org.springframework.web.socket.config.annotation.WebSocketHandlerRegistry;
+
+/**
+ * WebSocket configuration for MCP (Model Context Protocol) server.
+ * 
+ * This configuration enables WebSocket communication, which is essential for the
+ * Model Context Protocol. While MCP can work over different transport layers,
+ * WebSockets are commonly used because they provide:
+ * 
+ * 1. Full-duplex communication - both client and server can initiate messages
+ * 2. Low latency - no HTTP request/response overhead
+ * 3. Persistent connections - no need to re-establish connection for each message
+ * 4. Real-time updates - server can notify clients immediately of changes
+ * 
+ * The MCP server will be available at ws://localhost:8080/api/mcp
+ */
+@Configuration
+@EnableWebSocket
+public class WebSocketConfig implements WebSocketConfigurer {
+    
+    @Autowired
+    private McpServer mcpServer;
+    
+    /**
+     * Register WebSocket handlers and their URL mappings.
+     * 
+     * This method tells Spring where to route WebSocket connections.
+     * When a client connects to ws://localhost:8080/api/mcp, it will be
+     * handled by our McpServer instance.
+     */
+    @Override
+    public void registerWebSocketHandlers(WebSocketHandlerRegistry registry) {
+        // Register the MCP server handler
+        registry.addHandler(mcpServer, "/mcp")
+                .setAllowedOrigins("*") // In production, specify allowed origins for security
+                .withSockJS(); // Enable SockJS fallback for browsers that don't support WebSockets
+        
+        // You could register additional WebSocket handlers here for other protocols
+        // For example:
+        // registry.addHandler(chatHandler, "/chat").setAllowedOrigins("*");
+    }
+}
+
+/**
+ * Additional configuration for Jackson ObjectMapper to handle MCP message serialization.
+ */
+@Configuration
+class McpConfiguration {
+    
+    /**
+     * Configure Jackson ObjectMapper for proper MCP message handling.
+     * 
+     * The Model Context Protocol uses JSON for message serialization, so we need
+     * to ensure our JSON handling is configured correctly for MCP message types.
+     */
+    @Bean
+    public com.fasterxml.jackson.databind.ObjectMapper mcpObjectMapper() {
+        com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+        
+        // Configure for MCP message handling
+        mapper.configure(com.fasterxml.jackson.databind.DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
+        mapper.configure(com.fasterxml.jackson.databind.SerializationFeature.FAIL_ON_EMPTY_BEANS, false);
+        
+        return mapper;
+    }
+}
