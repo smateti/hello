@@ -1,0 +1,391 @@
+package com.example.ollamacmp.controller;
+
+import com.example.ollamacmp.mcp.model.*;
+import com.example.ollamacmp.mcp.server.McpServer;
+import com.example.ollamacmp.mcp.tools.McpToolImplementations;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.ai.chat.messages.UserMessage;
+import org.springframework.ai.chat.model.ChatResponse;
+import org.springframework.ai.chat.prompt.Prompt;
+import org.springframework.ai.ollama.OllamaChatModel;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+
+/**
+ * REST API controllers for the Ollama MCP Demo.
+ * 
+ * These controllers provide HTTP endpoints that external clients can use to:
+ * 1. Interact with Ollama AI models
+ * 2. Execute MCP tools directly
+ * 3. Monitor server status
+ * 4. Test functionality
+ * 
+ * This demonstrates how you can build a traditional REST API on top of
+ * your MCP server infrastructure, giving you both MCP protocol support
+ * AND standard HTTP API access.
+ */
+
+/**
+ * Controller for AI chat interactions via Ollama.
+ * 
+ * This controller shows how to integrate Spring AI with Ollama models
+ * and how those models can potentially use MCP tools through function calling.
+ */
+@RestController
+@RequestMapping("/chat")
+public class ChatController {
+    
+    private static final Logger logger = LoggerFactory.getLogger(ChatController.class);
+    
+    @Autowired
+    private OllamaChatModel chatModel;
+    
+    @Autowired
+    private McpToolImplementations toolImplementations;
+    
+    /**
+     * Send a message to the AI model and get a response.
+     * 
+     * This endpoint demonstrates basic AI chat functionality using Ollama.
+     * The AI model will respond to the user's message, and if configured properly,
+     * it can also call MCP tools to enhance its responses.
+     * 
+     * Example usage:
+     * POST /api/chat/message
+     * {
+     *   "message": "Calculate 15% of 1,250",
+     *   "useTools": true
+     * }
+     */
+    @PostMapping("/message")
+    public ResponseEntity<Map<String, Object>> sendMessage(@RequestBody ChatRequest request) {
+        logger.info("Received chat request: {}", request.getMessage());
+        
+        try {
+            // Create a chat client from the Ollama model
+            ChatClient chatClient = ChatClient.create(chatModel);
+            
+            String systemPrompt = buildSystemPrompt(request.isUseTools());
+            String userMessage = request.getMessage();
+            
+            // Send the message to Ollama
+            ChatResponse response = chatClient.prompt()
+                .system(systemPrompt)
+                .user(userMessage)
+                .call()
+                .chatResponse();
+            
+            // Process the response and potentially execute tools
+            Map<String, Object> result = processAIResponse(response, request.isUseTools());
+            
+            logger.info("Chat response generated successfully");
+            return ResponseEntity.ok(result);
+            
+        } catch (Exception e) {
+            logger.error("Error processing chat request: {}", e.getMessage(), e);
+            
+            Map<String, Object> errorResponse = new HashMap<>();
+            errorResponse.put("error", "Failed to process chat request: " + e.getMessage());
+            errorResponse.put("success", false);
+            
+            return ResponseEntity.internalServerError().body(errorResponse);
+        }
+    }
+    
+    /**
+     * Get list of available AI models.
+     * 
+     * This endpoint shows what models are available in your Ollama installation.
+     * Useful for testing connectivity and seeing what models you can use.
+     */
+    @GetMapping("/models")
+    public ResponseEntity<Map<String, Object>> getAvailableModels() {
+        logger.info("Fetching available models");
+        
+        try {
+            // In a real implementation, you might query Ollama's API for available models
+            // For this demo, we'll return the configured model
+            Map<String, Object> response = new HashMap<>();
+            response.put("models", List.of(
+                Map.of("name", "llama3.1", "description", "Default configured model"),
+                Map.of("name", "codellama", "description", "Code-focused model (if available)"),
+                Map.of("name", "mistral", "description", "Alternative model (if available)")
+            ));
+            response.put("currentModel", "llama3.1");
+            response.put("success", true);
+            
+            return ResponseEntity.ok(response);
+            
+        } catch (Exception e) {
+            logger.error("Error fetching models: {}", e.getMessage());
+            
+            Map<String, Object> errorResponse = new HashMap<>();
+            errorResponse.put("error", "Failed to fetch models: " + e.getMessage());
+            errorResponse.put("success", false);
+            
+            return ResponseEntity.internalServerError().body(errorResponse);
+        }
+    }
+    
+    /**
+     * Build a system prompt that may include tool descriptions.
+     */
+    private String buildSystemPrompt(boolean includeTools) {
+        StringBuilder prompt = new StringBuilder();
+        prompt.append("You are a helpful AI assistant. ");
+        
+        if (includeTools) {
+            prompt.append("You have access to several tools that can help you provide accurate information:\n\n");
+            prompt.append("1. Calculator: For mathematical calculations\n");
+            prompt.append("2. File Operations: For reading and writing files\n");
+            prompt.append("3. Weather: For getting weather information\n\n");
+            prompt.append("When a user asks something that would benefit from using these tools, ");
+            prompt.append("explain what tool you would use and how it would help. ");
+            prompt.append("For demonstration purposes, mention when you would call a specific tool.\n\n");
+        }
+        
+        prompt.append("Be helpful, accurate, and concise in your responses.");
+        
+        return prompt.toString();
+    }
+    
+    /**
+     * Process the AI response and potentially execute tools.
+     * In a full implementation with function calling, this is where you'd
+     * detect tool calls in the AI response and execute them.
+     */
+    private Map<String, Object> processAIResponse(ChatResponse response, boolean toolsEnabled) {
+        Map<String, Object> result = new HashMap<>();
+        
+        String aiResponse = response.getResult().getOutput().getContent();
+        result.put("response", aiResponse);
+        result.put("success", true);
+        result.put("toolsEnabled", toolsEnabled);
+        
+        // In a full implementation, you'd parse the response for tool calls
+        // and execute them here, then potentially send the results back to the AI
+        // for a final response. For this demo, we'll just detect keywords.
+        
+        if (toolsEnabled) {
+            result.put("suggestedTools", detectSuggestedTools(aiResponse));
+        }
+        
+        return result;
+    }
+    
+    /**
+     * Detect what tools the AI response suggests using.
+     * This is a simple keyword-based detection for demonstration.
+     */
+    private List<String> detectSuggestedTools(String response) {
+        List<String> suggestedTools = new java.util.ArrayList<>();
+        
+        String lowerResponse = response.toLowerCase();
+        
+        if (lowerResponse.contains("calculat") || lowerResponse.contains("math") || 
+            lowerResponse.contains("compute")) {
+            suggestedTools.add("calculator");
+        }
+        
+        if (lowerResponse.contains("file") || lowerResponse.contains("read") || 
+            lowerResponse.contains("write")) {
+            suggestedTools.add("file-operations");
+        }
+        
+        if (lowerResponse.contains("weather") || lowerResponse.contains("temperature")) {
+            suggestedTools.add("weather");
+        }
+        
+        return suggestedTools;
+    }
+    
+    /**
+     * Request object for chat messages.
+     */
+    public static class ChatRequest {
+        private String message;
+        private boolean useTools = false;
+        
+        // Constructors
+        public ChatRequest() {}
+        public ChatRequest(String message, boolean useTools) {
+            this.message = message;
+            this.useTools = useTools;
+        }
+        
+        // Getters and setters
+        public String getMessage() { return message; }
+        public void setMessage(String message) { this.message = message; }
+        
+        public boolean isUseTools() { return useTools; }
+        public void setUseTools(boolean useTools) { this.useTools = useTools; }
+    }
+}
+
+/**
+ * Controller for MCP-specific operations.
+ * 
+ * This controller provides HTTP access to MCP functionality,
+ * allowing you to test tools and inspect server status without
+ * needing to use the WebSocket protocol.
+ */
+@RestController
+@RequestMapping("/mcp")
+public class McpController {
+    
+    private static final Logger logger = LoggerFactory.getLogger(McpController.class);
+    
+    @Autowired
+    private McpServer mcpServer;
+    
+    @Autowired
+    private McpToolImplementations toolImplementations;
+    
+    /**
+     * Get list of available MCP tools.
+     * 
+     * This endpoint returns the same tool information that would be
+     * provided to MCP clients, but in a simple HTTP format.
+     */
+    @GetMapping("/tools")
+    public ResponseEntity<Map<String, Object>> listTools() {
+        logger.info("Listing MCP tools via HTTP");
+        
+        try {
+            Map<String, Object> response = new HashMap<>();
+            
+            // Get tool information (simplified for HTTP response)
+            response.put("tools", List.of(
+                Map.of("name", "calculator", "description", "Perform mathematical calculations"),
+                Map.of("name", "file-operations", "description", "Read and write files"),
+                Map.of("name", "weather", "description", "Get weather information")
+            ));
+            
+            response.put("count", 3);
+            response.put("success", true);
+            
+            return ResponseEntity.ok(response);
+            
+        } catch (Exception e) {
+            logger.error("Error listing tools: {}", e.getMessage());
+            
+            Map<String, Object> errorResponse = new HashMap<>();
+            errorResponse.put("error", "Failed to list tools: " + e.getMessage());
+            errorResponse.put("success", false);
+            
+            return ResponseEntity.internalServerError().body(errorResponse);
+        }
+    }
+    
+    /**
+     * Execute an MCP tool directly via HTTP.
+     * 
+     * This endpoint allows you to test MCP tools without using the WebSocket protocol.
+     * It's great for debugging and demonstrating tool functionality.
+     * 
+     * Example usage:
+     * POST /api/mcp/execute
+     * {
+     *   "toolName": "calculator",
+     *   "arguments": {
+     *     "operation": "add",
+     *     "numbers": [10, 25, 5]
+     *   }
+     * }
+     */
+    @PostMapping("/execute")
+    public ResponseEntity<Map<String, Object>> executeTool(@RequestBody ToolExecutionRequest request) {
+        logger.info("Executing tool {} with arguments: {}", request.getToolName(), request.getArguments());
+        
+        try {
+            McpToolResult result = executeToolByName(request.getToolName(), request.getArguments());
+            
+            Map<String, Object> response = new HashMap<>();
+            response.put("toolName", request.getToolName());
+            response.put("result", result);
+            response.put("success", !result.isError());
+            
+            return ResponseEntity.ok(response);
+            
+        } catch (Exception e) {
+            logger.error("Error executing tool {}: {}", request.getToolName(), e.getMessage());
+            
+            Map<String, Object> errorResponse = new HashMap<>();
+            errorResponse.put("error", "Tool execution failed: " + e.getMessage());
+            errorResponse.put("toolName", request.getToolName());
+            errorResponse.put("success", false);
+            
+            return ResponseEntity.internalServerError().body(errorResponse);
+        }
+    }
+    
+    /**
+     * Get MCP server status and statistics.
+     */
+    @GetMapping("/status")
+    public ResponseEntity<Map<String, Object>> getServerStatus() {
+        logger.info("Getting MCP server status");
+        
+        try {
+            Map<String, Object> status = mcpServer.getSessionInfo();
+            status.put("success", true);
+            status.put("timestamp", System.currentTimeMillis());
+            
+            return ResponseEntity.ok(status);
+            
+        } catch (Exception e) {
+            logger.error("Error getting server status: {}", e.getMessage());
+            
+            Map<String, Object> errorResponse = new HashMap<>();
+            errorResponse.put("error", "Failed to get server status: " + e.getMessage());
+            errorResponse.put("success", false);
+            
+            return ResponseEntity.internalServerError().body(errorResponse);
+        }
+    }
+    
+    /**
+     * Execute a tool by name (helper method).
+     */
+    private McpToolResult executeToolByName(String toolName, Map<String, Object> arguments) {
+        switch (toolName) {
+            case "calculator":
+                return toolImplementations.executeCalculator(arguments);
+            case "file-operations":
+                return toolImplementations.executeFileOperations(arguments);
+            case "weather":
+                return toolImplementations.executeWeather(arguments);
+            default:
+                return McpToolResult.error("Unknown tool: " + toolName);
+        }
+    }
+    
+    /**
+     * Request object for tool execution.
+     */
+    public static class ToolExecutionRequest {
+        private String toolName;
+        private Map<String, Object> arguments;
+        
+        // Constructors
+        public ToolExecutionRequest() {}
+        public ToolExecutionRequest(String toolName, Map<String, Object> arguments) {
+            this.toolName = toolName;
+            this.arguments = arguments;
+        }
+        
+        // Getters and setters
+        public String getToolName() { return toolName; }
+        public void setToolName(String toolName) { this.toolName = toolName; }
+        
+        public Map<String, Object> getArguments() { return arguments; }
+        public void setArguments(Map<String, Object> arguments) { this.arguments = arguments; }
+    }
+}
