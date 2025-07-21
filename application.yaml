@@ -1,0 +1,72 @@
+# Spring Boot Application Configuration
+server:
+  port: 8080
+  servlet:
+    context-path: /api
+
+# Spring AI Ollama Configuration
+spring:
+  ai:
+    ollama:
+      # Ollama server URL - adjust if running on different host/port
+      base-url: http://localhost:11434
+      chat:
+        options:
+          # Default model - make sure this model is pulled in Ollama
+          model: llama3.1
+          temperature: 0.7
+          top-p: 0.9
+          max-tokens: 2000
+        enabled: true
+  
+  # Application name for identification
+  application:
+    name: ollama-mcp-demo
+
+# MCP Server Configuration
+mcp:
+  server:
+    name: "Spring Boot MCP Demo Server"
+    version: "1.0.0"
+    # Port for MCP protocol communication (separate from REST API)
+    port: 9090
+    # Available tools that the MCP server exposes
+    tools:
+      - name: "calculator"
+        description: "Perform mathematical calculations"
+        enabled: true
+      - name: "file-operations"
+        description: "Read and write files"
+        enabled: true
+      - name: "weather"
+        description: "Get weather information"
+        enabled: true
+    # Resources that can be accessed via MCP
+    resources:
+      - uri: "file://data"
+        name: "Data Directory"
+        description: "Access to local data files"
+        enabled: true
+
+# Logging Configuration
+logging:
+  level:
+    com.example.ollamacmp: DEBUG
+    org.springframework.ai: DEBUG
+    org.springframework.web: INFO
+    reactor.netty: INFO
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} - %msg%n"
+    file: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
+  file:
+    name: logs/ollama-mcp-demo.log
+
+# Management endpoints for monitoring
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      show-details: always
